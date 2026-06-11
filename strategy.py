@@ -2,13 +2,10 @@ import numpy as np
 import pandas as pd
 
 # ==================================================
-# 🚀 ESTRATEGIA AJUSTADA - MÁS OPERACIONES
-# ✅ Errores de Series eliminados definitivamente
-# ✅ Condiciones flexibilizadas para más entradas
-# ✅ Estable en Railway
+# 🚀 ESTRATEGIA DE REVERSIÓN
 # ==================================================
 
-def get_trend_signal(df):
+def get_reversal_signal(df, tolerancia_nivel=0.0012, ventana_niveles=6):
     if len(df) < 30:
         return None
 
@@ -97,56 +94,56 @@ def get_trend_signal(df):
 
         rsi1 = float(df['rsi'].iloc[-1])
         vol1 = float(df['volume'].iloc[-1])
-        vol_prom = float(df['volume'].iloc[-15:-1].mean())
-        rango_prom = float((df['high'].iloc[-15:-1] - df['low'].iloc[-15:-1]).mean())
+        vol_prom = float(df['volume'].iloc[-15:-1].mean()) if len(df)>=16 else 1.0
+        rango_prom = float((df['high'].iloc[-15:-1] - df['low'].iloc[-15:-1]).mean()) if len(df)>=16 else 0.001
 
     except Exception:
         return None
 
     # --------------------------
-    # CONDICIONES FLEXIBILIZADAS
+    # CONDICIONES DE REVERSIÓN
     # --------------------------
-    if adx1 < 22.0:  # Reducido de 27 a 22
+    if adx1 < 22.0:
         return None
 
     fuerza = 0
     senal = None
     tipo = ""
 
-    # ✅ COMPRA
+    # ✅ COMPRA (Reversión alcista)
     cond_compra = (
         e8_1 > e13_1 > e21_1 > e34_1 and
         l1 > l2 and l2 > l3 and
         h1 > h2 and
         c1 > e8_1 and c1 < e21_1 * 1.02 and
         macd1 > sig1 and hist1 > hist2 and
-        48.0 < rsi1 < 68.0 and  # Rango ampliado
+        48.0 < rsi1 < 68.0 and
         c1 > o1 and c2 > o2
     )
 
     if cond_compra:
-        distancia = (c1 - e21_1) / e21_1 * 100.0
-        if distancia <= 1.8:  # Mayor tolerancia
+        distancia = abs((c1 - e21_1) / e21_1)
+        if distancia <= tolerancia_nivel * 10:
             senal = "call"
-            tipo = "alcista"
+            tipo = "soporte"
             fuerza = 65
 
-    # ✅ VENTA
+    # ✅ VENTA (Reversión bajista)
     cond_venta = (
         e8_1 < e13_1 < e21_1 < e34_1 and
         h1 < h2 and h2 < h3 and
         l1 < l2 and
         c1 < e8_1 and c1 > e21_1 * 0.98 and
         macd1 < sig1 and hist1 < hist2 and
-        32.0 < rsi1 < 52.0 and  # Rango ampliado
+        32.0 < rsi1 < 52.0 and
         c1 < o1 and c2 < o2
     )
 
     if cond_venta:
-        distancia = (e21_1 - c1) / e21_1 * 100.0
-        if distancia <= 1.8:  # Mayor tolerancia
+        distancia = abs((e21_1 - c1) / e21_1)
+        if distancia <= tolerancia_nivel * 10:
             senal = "put"
-            tipo = "bajista"
+            tipo = "resistencia"
             fuerza = 65
 
     if senal is None:
@@ -155,16 +152,20 @@ def get_trend_signal(df):
     # Filtros de calidad
     vela_tam = h1 - l1
     if vela_tam < rango_prom * 0.55:
-        return None
-    fuerza += 10
+        fuerza -= 15
+    else:
+        fuerza += 10
 
     if vol1 < vol_prom * 0.7:
-        return None
-    fuerza += 10
+        fuerza -= 15
+    else:
+        fuerza += 10
 
     cuerpo = abs(c1 - o1)
     if cuerpo < vela_tam * 0.45:
-        return None
-    fuerza += 10
+        fuerza -= 15
+    else:
+        fuerza += 10
 
-    return (senal, min(fuerza, 100), tipo)
+    fuerza = max(0, min(fuerza, 100))
+    return (senal, fuerza, tipo)
