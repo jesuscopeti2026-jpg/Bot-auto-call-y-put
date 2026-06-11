@@ -2,170 +2,71 @@ import numpy as np
 import pandas as pd
 
 # ==================================================
-# 🚀 ESTRATEGIA DE REVERSIÓN
+# 🚀 ESTRATEGIA EXTREMADAMENTE FLEXIBLE PARA MÁS SEÑALES
+# ✅ Sin errores de Pandas
+# ✅ Condiciones mínimas para asegurar señales
 # ==================================================
 
-def get_reversal_signal(df, tolerancia_nivel=0.0012, ventana_niveles=6):
-    if len(df) < 30:
+def get_trend_signal(df):
+    # Requiere menos velas para poder operar más frecuentemente
+    if len(df) < 10:
         return None
 
     df = df.copy()
 
-    # --------------------------
-    # CÁLCULO DE INDICADORES
-    # --------------------------
+    # Indicadores simplificados y flexibles
     df['ema8'] = df['close'].ewm(span=8, adjust=False).mean()
     df['ema13'] = df['close'].ewm(span=13, adjust=False).mean()
     df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
-    df['ema34'] = df['close'].ewm(span=34, adjust=False).mean()
 
     delta = df['close'].diff()
     gain = delta.where(delta > 0, 0.0)
     loss = -delta.where(delta < 0, 0.0)
-    avg_gain = gain.rolling(window=14).mean()
-    avg_loss = loss.rolling(window=14).mean().replace(0, 0.001)
+    avg_gain = gain.rolling(window=7, min_periods=1).mean() # Menos periodos
+    avg_loss = loss.rolling(window=7, min_periods=1).mean().replace(0, 0.001) # Menos periodos
     rs = avg_gain / avg_loss
     df['rsi'] = 100.0 - (100.0 / (1.0 + rs))
 
-    df['macd'] = df['ema13'] - df['ema34']
-    df['signal'] = df['macd'].ewm(span=9, adjust=False).mean()
-    df['hist'] = df['macd'] - df['signal']
+    df['macd'] = df['ema13'] - df['ema21']
+    df['signal'] = df['macd'].ewm(span=5, adjust=False).mean() # MACD signal más rápido
 
-    df['tr'] = np.maximum(
-        df['high'] - df['low'],
-        np.maximum(
-            abs(df['high'] - df['close'].shift(1)),
-            abs(df['low'] - df['close'].shift(1))
-        )
-    )
-    df['dm_plus'] = np.where(
-        (df['high'] - df['high'].shift(1)) > (df['low'].shift(1) - df['low']),
-        np.maximum(df['high'] - df['high'].shift(1), 0.0),
-        0.0
-    )
-    df['dm_minus'] = np.where(
-        (df['low'].shift(1) - df['low']) > (df['high'] - df['high'].shift(1)),
-        np.maximum(df['low'].shift(1) - df['low'], 0.0),
-        0.0
-    )
-
-    tr14 = df['tr'].rolling(14).sum().replace(0, 0.001)
-    dmp14 = df['dm_plus'].rolling(14).sum()
-    dmm14 = df['dm_minus'].rolling(14).sum()
-
-    di_plus = 100.0 * dmp14 / tr14
-    di_minus = 100.0 * dmm14 / tr14
-    di_sum = (di_plus + di_minus).replace(0, 0.001)
-    dx = 100.0 * abs(di_plus - di_minus) / di_sum
-    df['adx'] = dx.rolling(14).mean()
-
-    # --------------------------
-    # EXTRACCIÓN SEGURA DE VALORES
-    # --------------------------
     try:
-        adx1 = float(df['adx'].iloc[-1])
-        adx2 = float(df['adx'].iloc[-2])
-
         e8_1 = float(df['ema8'].iloc[-1])
         e13_1 = float(df['ema13'].iloc[-1])
         e21_1 = float(df['ema21'].iloc[-1])
-        e34_1 = float(df['ema34'].iloc[-1])
-
-        l1 = float(df['low'].iloc[-1])
-        l2 = float(df['low'].iloc[-2])
-        l3 = float(df['low'].iloc[-3])
-
-        h1 = float(df['high'].iloc[-1])
-        h2 = float(df['high'].iloc[-2])
-        h3 = float(df['high'].iloc[-3])
 
         c1 = float(df['close'].iloc[-1])
         c2 = float(df['close'].iloc[-2])
-        c3 = float(df['close'].iloc[-3])
-
         o1 = float(df['open'].iloc[-1])
-        o2 = float(df['open'].iloc[-2])
-        o3 = float(df['open'].iloc[-3])
 
         macd1 = float(df['macd'].iloc[-1])
         sig1 = float(df['signal'].iloc[-1])
-        hist1 = float(df['hist'].iloc[-1])
-        hist2 = float(df['hist'].iloc[-2])
-
         rsi1 = float(df['rsi'].iloc[-1])
         vol1 = float(df['volume'].iloc[-1])
-        vol_prom = float(df['volume'].iloc[-15:-1].mean()) if len(df)>=16 else 1.0
-        rango_prom = float((df['high'].iloc[-15:-1] - df['low'].iloc[-15:-1]).mean()) if len(df)>=16 else 0.001
+        vol_prom = float(df['volume'].iloc[-5:-1].mean()) # Promedio de volumen más corto
 
     except Exception:
-        return None
-
-    # --------------------------
-    # CONDICIONES DE REVERSIÓN
-    # --------------------------
-    if adx1 < 22.0:
         return None
 
     fuerza = 0
     senal = None
     tipo = ""
 
-    # ✅ COMPRA (Reversión alcista)
+    # ✅ COMPRA (ALCISTA) - Condiciones MÍNIMAS
     cond_compra = (
-        e8_1 > e13_1 > e21_1 > e34_1 and
-        l1 > l2 and l2 > l3 and
-        h1 > h2 and
-        c1 > e8_1 and c1 < e21_1 * 1.02 and
-        macd1 > sig1 and hist1 > hist2 and
-        48.0 < rsi1 < 68.0 and
-        c1 > o1 and c2 > o2
+        e8_1 > e13_1 and # Cruce de EMAs
+        macd1 > sig1 and # MACD alcista
+        rsi1 > 35.0 and # RSI no sobrevendido
+        c1 > o1         # Vela alcista
     )
 
     if cond_compra:
-        distancia = abs((c1 - e21_1) / e21_1)
-        if distancia <= tolerancia_nivel * 10:
-            senal = "call"
-            tipo = "soporte"
-            fuerza = 65
+        senal = "call"
+        tipo = "alcista"
+        fuerza = 40 # Fuerza base muy baja
+        # Pequeños aumentos de fuerza por confirmaciones
+        if e13_1 > e21_1: fuerza += 5
+        if c1 > c2: fuerza += 5
+        if vol1 >= vol_prom * 0.4: fuerza += 5 # Umbral de volumen más bajo
 
-    # ✅ VENTA (Reversión bajista)
-    cond_venta = (
-        e8_1 < e13_1 < e21_1 < e34_1 and
-        h1 < h2 and h2 < h3 and
-        l1 < l2 and
-        c1 < e8_1 and c1 > e21_1 * 0.98 and
-        macd1 < sig1 and hist1 < hist2 and
-        32.0 < rsi1 < 52.0 and
-        c1 < o1 and c2 < o2
-    )
-
-    if cond_venta:
-        distancia = abs((e21_1 - c1) / e21_1)
-        if distancia <= tolerancia_nivel * 10:
-            senal = "put"
-            tipo = "resistencia"
-            fuerza = 65
-
-    if senal is None:
-        return None
-
-    # Filtros de calidad
-    vela_tam = h1 - l1
-    if vela_tam < rango_prom * 0.55:
-        fuerza -= 15
-    else:
-        fuerza += 10
-
-    if vol1 < vol_prom * 0.7:
-        fuerza -= 15
-    else:
-        fuerza += 10
-
-    cuerpo = abs(c1 - o1)
-    if cuerpo < vela_tam * 0.45:
-        fuerza -= 15
-    else:
-        fuerza += 10
-
-    fuerza = max(0, min(fuerza, 100))
-    return (senal, fuerza, tipo)
+    
